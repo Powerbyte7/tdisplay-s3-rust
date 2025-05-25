@@ -1,14 +1,21 @@
 #![no_std]
 #![no_main]
 
+// use lib::DisplayDriver;
+
 use esp_hal::clock::CpuClock;
+use esp_hal::dma_tx_buffer;
+use esp_hal::gpio::OutputConfig;
+use esp_hal::lcd_cam::lcd::i8080::{Config, TxEightBits, I8080};
+use esp_hal::lcd_cam::{LcdCam};
+use esp_hal::time::Rate;
 use esp_hal::{
     delay::Delay,
     gpio::{Level, Output},
     main,
 };
 use esp_println::println;
-use mipidsi::interface::{Generic8BitBus, ParallelInterface};
+use hello_world::display::DisplayDriver;
 use mipidsi::models::ST7789;
 use mipidsi::options::ColorInversion;
 use mipidsi::Builder;
@@ -17,7 +24,6 @@ use embedded_graphics::{
     pixelcolor::Rgb565,
     prelude::RgbColor,
 };
-
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -31,44 +37,58 @@ fn main() -> ! {
 
     // Print over USB Serial
     println!("Hello World!");
-
+    
     // Define the reset and write enable pins as digital outputs and make them high
-    let rst = Output::new(peripherals.GPIO5, Level::Low);
-    let _cs = Output::new(peripherals.GPIO6, Level::Low);
+    let rst = Output::new(peripherals.GPIO5, Level::Low, OutputConfig::default());
 
     // Define the Data/Command select pin as a digital output
-    let dc = Output::new(peripherals.GPIO7, Level::High);
-    let wr = Output::new(peripherals.GPIO8, Level::High);
-    let _rd = Output::new(peripherals.GPIO9, Level::High);
+    let _rd = Output::new(peripherals.GPIO9, Level::High, OutputConfig::default());
 
-    // Turn on backlight
-    let _backlight = Output::new(peripherals.GPIO38, Level::High);
-    let _lcd_on = Output::new(peripherals.GPIO15, Level::High);
+    // Turn on backlight, lcd
+    let _backlight = Output::new(peripherals.GPIO38, Level::High, OutputConfig::default());
+    let _lcd_on = Output::new(peripherals.GPIO15, Level::High, OutputConfig::default());
 
+    let tx_pins = TxEightBits::new(
+        peripherals.GPIO39,
+        peripherals.GPIO40,
+        peripherals.GPIO41,
+        peripherals.GPIO42,
+        peripherals.GPIO45,
+        peripherals.GPIO46,
+        peripherals.GPIO47,
+        peripherals.GPIO48,
+    );
+
+    // Create a DMA interface for sending commands
+    let lcd_cam = LcdCam::new(peripherals.LCD_CAM);
     
-    // Define the pins used for the parallel interface as digital outputs
-    let lcd_d0 = Output::new(peripherals.GPIO39, Level::Low);
-    let lcd_d1 = Output::new(peripherals.GPIO40, Level::Low);
-    let lcd_d2 = Output::new(peripherals.GPIO41, Level::Low);
-    let lcd_d3 = Output::new(peripherals.GPIO42, Level::Low);
-    let lcd_d4 = Output::new(peripherals.GPIO45, Level::Low);
-    let lcd_d5 = Output::new(peripherals.GPIO46, Level::Low);
-    let lcd_d6 = Output::new(peripherals.GPIO47, Level::Low);
-    let lcd_d7 = Output::new(peripherals.GPIO48, Level::Low);
+    let lcd_config = Config::default()
+        .with_frequency(Rate::from_mhz(7));
 
-    // Define the parallel bus with the previously defined parallel port pins
-    let bus = Generic8BitBus::new((
-        lcd_d0, lcd_d1, lcd_d2, lcd_d3, lcd_d4, lcd_d5, lcd_d6, lcd_d7,
-    ));
+    let dc = peripherals.GPIO7;
+    let wr = peripherals.GPIO8;
+    let cs = peripherals.GPIO6;
 
-    // Define the display interface from a generic 8 bit bus, a Data/Command select pin and a write enable pin
-    let di = ParallelInterface::new(bus, dc, wr);
+    let i8080 = I8080::new(
+        lcd_cam.lcd,
+        peripherals.DMA_CH0,
+        tx_pins,
+        lcd_config,
+    );
+
+    let i8080 = i8080.unwrap()
+        .with_ctrl_pins(dc, wr)
+        .with_cs(cs);
+    
+    // Create a DMA buffer to hold pixel data
+    let tx_buf = dma_tx_buffer!(320*170*2).unwrap();
+
+    let interface = DisplayDriver::init(tx_buf, i8080);
 
     let mut delay = Delay::new();
 
-    // Define the display from the display bus and initialize 
-    // it with the delay struct and the reset pin
-    let mut display = Builder::new(ST7789, di)
+    // Define the display from the display bus and initialize it
+    let mut display = Builder::new(ST7789, interface)
         .reset_pin(rst)
         .display_offset(35, 0)
         .display_size(170, 320)
