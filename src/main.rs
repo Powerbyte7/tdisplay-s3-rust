@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-// use lib::DisplayDriver;
+mod display;
 
 use esp_hal::clock::CpuClock;
 use esp_hal::dma_tx_buffer;
@@ -15,7 +15,7 @@ use esp_hal::{
     main,
 };
 use esp_println::println;
-use hello_world::display::DisplayDriver;
+use crate::display::DisplayDriver;
 use mipidsi::models::ST7789;
 use mipidsi::options::ColorInversion;
 use mipidsi::Builder;
@@ -79,6 +79,8 @@ fn main() -> ! {
     let i8080 = i8080.unwrap()
         .with_ctrl_pins(dc, wr)
         .with_cs(cs);
+
+    // let video = !include_bytes!();
     
     // Create a DMA buffer to hold pixel data
     let tx_buf = dma_tx_buffer!(320*170*2).unwrap();
@@ -95,6 +97,8 @@ fn main() -> ! {
         .invert_colors(ColorInversion::Inverted)
         .init(&mut delay)
         .unwrap();
+
+    // display.dcs()
 
     loop {
         delay.delay_millis(100);
